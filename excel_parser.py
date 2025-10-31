@@ -60,22 +60,44 @@ class BoreholeDataParser:
 
         return layers
 
+
+    # excel_parser.py - обновляем функцию map_lithology
     def map_lithology(self, lithology_name):
         """
-        Приводим названия грунтов к стандартным типам
+        УЛУЧШЕННОЕ приведение названий грунтов к стандартным типам
         """
+        if not isinstance(lithology_name, str):
+            return "суглинок"
+
+        lith_lower = lithology_name.lower().strip()
+
         lithology_map = {
             "торф": "торф",
             "суглинок": "суглинок",
             "супесь": "супесь",
             "песок": "песок",
-            "прп": "торф",  # предположение
-            "прс": "торф",  # предположение
+            "прс": "прс",
+            "прп": "торф",
+            "растительный": "прс",
+            "мох": "прс",
+            "моховой": "прс",
+            "растительный слой": "прс",
+            "почва": "прс",
         }
 
-        lithology_lower = lithology_name.lower().strip()
+        # Поиск по ключевым словам
         for key, value in lithology_map.items():
-            if key in lithology_lower:
+            if key in lith_lower:
                 return value
+
+        # Если не нашли, пытаемся определить по описанию
+        if "пес" in lith_lower:
+            return "песок"
+        elif "сугл" in lith_lower:
+            return "суглинок"
+        elif "супе" in lith_lower:
+            return "супесь"
+        elif "торф" in lith_lower:
+            return "торф"
 
         return "суглинок"  # значение по умолчанию

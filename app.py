@@ -9,8 +9,8 @@ st.set_page_config(
     page_title="Термометрия мерзлых грунтов", page_icon="🧊", layout="wide"
 )
 
-st.title("🧊 Интегрированная система термометрии")
-st.write("Загрузка данных из бурового журнала и прогноз температур")
+st.title("🧊 Система термометрии на основе реальных данных")
+st.write("Использует реальные термограммы для точного прогнозирования")
 
 # Инициализация
 if "model" not in st.session_state:
@@ -37,7 +37,6 @@ with st.sidebar:
             )
             selected_borehole = st.selectbox("Выберите скважину", boreholes)
 
-            # Показываем информацию о скважине
             borehole_layers = st.session_state.parser.get_layers_for_borehole(
                 st.session_state.borehole_data, selected_borehole
             )
@@ -50,39 +49,38 @@ with st.sidebar:
 
     st.header("🌡️ Климатические параметры")
     surface_temp = st.number_input(
-        "Температура поверхности (°C)", -30.0, 20.0, -5.0, 0.5
+        "Температура поверхности (°C)", -30.0, 20.0, -1.0, 0.5
     )
     season = st.selectbox("Время года", ["зима", "весна", "лето", "осень"])
 
-    st.header("🤖 Настройки модели")
+    st.header("🎯 Настройки модели")
     use_ml = st.checkbox(
         "Использовать ML модель", value=st.session_state.model.is_ml_trained
     )
 
-    if st.button("Обучить ML модель") and len(st.session_state.model.training_data) > 0:
-        success, message = st.session_state.model.train_ml_model()
-        if success:
-            st.success(message)
-        else:
-            st.error(message)
+    # Информация о модели
+    st.subheader("Информация о модели")
+    st.write(f"Эталонная термограмма: K36T")
+    st.write(f"Замеров для обучения: {len(st.session_state.model.training_data)}")
+    st.write(
+        f"ML модель: {'обучена' if st.session_state.model.is_ml_trained else 'не обучена'}"
+    )
 
 # Основная область
 if st.session_state.borehole_data is not None and "selected_borehole" in locals():
-    # Получаем слои для выбранной скважины
     layers = st.session_state.parser.get_layers_for_borehole(
         st.session_state.borehole_data, selected_borehole
     )
 
     st.header(f"Температурный профиль для скважины {selected_borehole}")
 
-    # Функция для определения грунта на глубине
     def get_lithology_at_depth(depth, layers):
         for layer in layers:
             if depth <= layer["depth_to"]:
                 return layer["lithology"]
         return layers[-1]["lithology"]
 
-    # Стандартные глубины для термометрии
+    # Стандартные глубины
     standard_depths = [
         0,
         0.5,
@@ -102,27 +100,25 @@ if st.session_state.borehole_data is not None and "selected_borehole" in locals(
         10,
         12,
         14,
+        16,
+        18,
+        20,
+        24,
+        26,
+        30,
     ]
 
     # Создаём таблицу с прогнозами
     data = []
     for depth in standard_depths:
-        if depth <= layers[-1]["depth_to"]:
+        if depth <= (layers[-1]["depth_to"] if layers else 30):
             lith_at_depth = get_lithology_at_depth(depth, layers)
             predicted_temp = st.session_state.model.predict_temperature(
                 depth, lith_at_depth, surface_temp, season, use_ml
             )
 
-            ground_type_map = {
-                "песок": "песок средней крупности",
-                "супесь": "супесь",
-                "суглинок": "суглинок",
-                "торф": "суглинок",
-            }
-
-            ground_type = ground_type_map.get(lith_at_depth, "суглинок")
             ground_state = st.session_state.model.get_ground_state(
-                predicted_temp, ground_type
+                predicted_temp, lith_at_depth
             )
 
             data.append(
@@ -137,15 +133,29 @@ if st.session_state.borehole_data is not None and "selected_borehole" in locals(
     df = pd.DataFrame(data)
     st.dataframe(df, use_container_width=True)
 
-    # Секция для ввода реальных замеров и обучения
-    st.header("📝 Ввод реальных замеров для обучения")
+    # Визуализация
+    st.header("📊 График температурного профиля")
+
+    try:
+        import plotly.express as px
+
+        fig = px.line(
+            df, x="Температура (°C)", y="Глубина (м)", title="Температурный профиль"
+        )
+        fig.update_yaxes(autorange="reversed")
+        st.plotly_chart(fig, use_container_width=True)
+    except:
+        st.line_chart(df.set_index("Глубина (м)")["Температура (°C)"])
+
+    # Секция для обучения
+    st.header("📝 Обучение модели на реальных замерах")
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        train_depth = st.number_input("Глубина замера (м)", 0.0, 20.0, 2.0, 0.5)
+        train_depth = st.number_input("Глубина замера (м)", 0.0, 30.0, 2.0, 0.5)
     with col2:
         train_lithology = st.selectbox(
-            "Грунт на глубине", ["торф", "суглинок", "супесь", "песок"]
+            "Грунт на глубине", ["торф", "суглинок", "супесь", "песок", "прс"]
         )
     with col3:
         actual_temp = st.number_input(
@@ -160,28 +170,28 @@ if st.session_state.borehole_data is not None and "selected_borehole" in locals(
             f"Замер на глубине {train_depth}м добавлен. Всего замеров: {len(st.session_state.model.training_data)}"
         )
 
-    # Информация о ML модели
-    st.header("Информация о модели")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Замеров для обучения", len(st.session_state.model.training_data))
-    with col2:
-        st.metric(
-            "ML модель обучена", "Да" if st.session_state.model.is_ml_trained else "Нет"
-        )
+    if st.button("Обучить ML модель") and len(st.session_state.model.training_data) > 0:
+        success, message = st.session_state.model.train_ml_model()
+        if success:
+            st.success(message)
+        else:
+            st.error(message)
 
 else:
     st.info("👆 Загрузите файл бурового журнала чтобы начать работу")
 
-# Инструкция
-with st.expander("Инструкция по использованию"):
-    st.markdown(
+# Информация о эталонной термограмме
+with st.expander("📋 Информация об эталонной термограмме K36T"):
+    st.write(
         """
-    1. **Загрузите Excel файл** бурового журнала в боковой панели
-    2. **Выберите скважину** для анализа
-    3. **Установите климатические параметры** (температура поверхности, время года)
-    4. **Просмотрите температурный профиль** в основной таблице
-    5. **Добавляйте реальные замеры** для улучшения модели
-    6. **Обучайте ML модель** когда накопится достаточно данных
+    **Эталонные данные из журнала термометрии:**
+    - Поверхность: -3.0°C
+    - 0.5м: -4.0°C  
+    - 1.0м: -0.92°C
+    - 5.0м: -0.74°C
+    - 10.0м: -0.82°C
+    - 30.0м: -1.28°C
+    
+    Модель корректирует этот профиль под вашу температуру поверхности.
     """
     )
